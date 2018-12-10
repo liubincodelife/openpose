@@ -5,12 +5,13 @@ import cv2
 import lmdb
 import sys, os
 # change your caffe path here
-sys.path.insert(0, os.path.join('/home/zhecao/caffe/', 'python/'))
 import caffe
 import os.path
 import struct
 
-def writeLMDB(datasets, lmdb_path, validation):
+COCO_DIR = "/home/lqy/E/coco2014"
+
+def writeLMDB(datasets, lmdb_path, json_path, validation):
 	env = lmdb.open(lmdb_path, map_size=int(1e12))
 	txn = env.begin(write=True)
 	data = []
@@ -28,47 +29,57 @@ def writeLMDB(datasets, lmdb_path, validation):
 			print numSample
 		elif(datasets[d] == "COCO"):
 			print datasets[d]
-			with open('dataset/COCO/json/COCO.json') as data_file:
+			with open(json_path) as data_file:
 				data_this = json.load(data_file)
-				data_this = data_this['root']
+				# data_this = data_this['root']
 				data = data + data_this
 			numSample = len(data)
 			#print data
-			print numSample	
+			print numSample
+
+	# for i in range(numSample):
+	# 	print(data[i])
+
 
 	random_order = np.random.permutation(numSample).tolist()
-	
+	print(type(data[0]['isValidation']))
 	isValidationArray = [data[i]['isValidation'] for i in range(numSample)];
 	if(validation == 1):
-		totalWriteCount = isValidationArray.count(0.0);
+		totalWriteCount = isValidationArray.count(1.0)
 	else:
-		totalWriteCount = len(data)
-	print totalWriteCount;
-	writeCount = 0
+		totalWriteCount = isValidationArray.count(0.0)
+	print totalWriteCount
 
+	writeCount = 0
 	for count in range(numSample):
 		idx = random_order[count]
-		if (data[idx]['isValidation'] != 0 and validation == 1):
-			print '%d/%d skipped' % (count,idx)
+		if data[idx]['isValidation'] == 0 and validation == 1:
+			# print '%d/%d train skipped' % (count,idx)
+			continue
+		elif data[idx]['isValidation'] == 1 and validation == 0:
+			# print '%d/%d val skipped' % (count,idx)
 			continue
 
 		if "MPI" in data[idx]['dataset']:
 			path_header = 'dataset/MPI/images/'
 		elif "COCO" in data[idx]['dataset']:
-			path_header = '/media/posenas4b/User/zhe/Convolutional-Pose-Machines/training/dataset/COCO/images/'
+			path_header = COCO_DIR
 
 		print os.path.join(path_header, data[idx]['img_paths'])
 		img = cv2.imread(os.path.join(path_header, data[idx]['img_paths']))
 		#print data[idx]['img_paths']
-		img_idx = data[idx]['img_paths'][-16:-3];
+		img_idx = data[idx]['img_paths'][-16:-4]
 		#print img_idx
 		if "COCO_val" in data[idx]['dataset']:
-			mask_all = cv2.imread(path_header+'mask2014/val2014_mask_all_'+img_idx+'png', 0)
-			mask_miss = cv2.imread(path_header+'mask2014/val2014_mask_miss_'+img_idx+'png', 0)
+			# print(img_idx)
+			# print(os.path.join(path_header, 'mask2014/val2014_mask_all_' + img_idx + '.png'))
+			# print(os.path.join(path_header, 'mask2014/val2014_mask_miss_' + img_idx + '.png'))
+			mask_all = cv2.imread(os.path.join(path_header, 'mask2014/val2014_mask_all_' + img_idx + '.png'), 0)
+			mask_miss = cv2.imread(os.path.join(path_header, 'mask2014/val2014_mask_miss_' + img_idx + '.png'), 0)
 			#print path_header+'mask2014/val2014_mask_miss_'+img_idx+'png'
 		elif "COCO" in data[idx]['dataset']:
-			mask_all = cv2.imread(path_header+'mask2014/train2014_mask_all_'+img_idx+'png', 0)
-			mask_miss = cv2.imread(path_header+'mask2014/train2014_mask_miss_'+img_idx+'png', 0)
+			mask_all = cv2.imread(os.path.join(path_header, 'mask2014/train2014_mask_all_' + img_idx + '.png'), 0)
+			mask_miss = cv2.imread(os.path.join(path_header, 'mask2014/train2014_mask_miss_' + img_idx + '.png'), 0)
 			#print path_header+'mask2014/train2014_mask_miss_'+img_idx+'png'
 		elif "MPI" in data[idx]['dataset']:
 			img_idx = data[idx]['img_paths'][-13:-3];
@@ -134,14 +145,14 @@ def writeLMDB(datasets, lmdb_path, validation):
 			clidx = clidx + 1
 		# (e) check nop, prepare arrays
 		if(nop!=0):
-			if(nop==1):
-				joint_other = [data[idx]['joint_others']]
-				objpos_other = [data[idx]['objpos_other']]
-				scale_provided_other = [data[idx]['scale_provided_other']]
-			else:
-				joint_other = data[idx]['joint_others']
-				objpos_other = data[idx]['objpos_other']
-				scale_provided_other = data[idx]['scale_provided_other']
+			# if(nop==1):
+			# 	joint_other = [data[idx]['joint_others']]
+			# 	objpos_other = [data[idx]['objpos_other']]
+			# 	scale_provided_other = [data[idx]['scale_provided_other']]
+			# else:
+			joint_other = data[idx]['joint_others']
+			objpos_other = data[idx]['objpos_other']
+			scale_provided_other = data[idx]['scale_provided_other']
 			# (f) objpos_other_x (float), objpos_other_y (float) (nop lines)
 			for i in range(nop):
 				objpos_binary = float2bytes(objpos_other[i])
@@ -161,14 +172,17 @@ def writeLMDB(datasets, lmdb_path, validation):
 					for j in range(len(row_binary)):
 						meta_data[clidx][j] = ord(row_binary[j])
 					clidx = clidx + 1
-		
+
+		print(np.shape(img))
+		print(np.shape(mask_miss))
+		print(np.shape(mask_all))
 		# print meta_data[0:12,0:48] 
 		# total 7+4*nop lines
 		if "COCO" in data[idx]['dataset']:
-			img4ch = np.concatenate((img, meta_data, mask_miss[...,None], mask_all[...,None]), axis=2)
+			img4ch = np.concatenate((img, meta_data, mask_miss[:,:,np.newaxis], mask_all[:,:,np.newaxis]), axis=2)
 			#img4ch = np.concatenate((img, meta_data, mask_miss[...,None]), axis=2)
 		elif "MPI" in data[idx]['dataset']:
-			img4ch = np.concatenate((img, meta_data, mask_miss[...,None]), axis=2)
+			img4ch = np.concatenate((img, meta_data, mask_miss[:,:,np.newaxis]), axis=2)
 
 		img4ch = np.transpose(img4ch, (2, 0, 1))
 		print img4ch.shape
@@ -192,4 +206,6 @@ def float2bytes(floats):
 
 if __name__ == "__main__":
 	#writeLMDB(['MPI'], '/home/zhecao/MPI_pose/lmdb', 1)
-	writeLMDB(['COCO'], '/home/zhecao/COCO_kpt/lmdb', 1)
+	COCO_LMDB_DIR = os.path.join(COCO_DIR, "lmdb")
+	COCO_JSON_DIR = os.path.join(COCO_DIR, "coco2014.json")
+	writeLMDB(['COCO'], COCO_LMDB_DIR, COCO_JSON_DIR, 1)
